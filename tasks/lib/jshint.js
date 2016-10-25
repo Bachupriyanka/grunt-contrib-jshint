@@ -14,7 +14,8 @@ var jshintcli = require('jshint/src/cli');
 
 exports.init = function(grunt) {
   var exports = {
-    usingGruntReporter: false
+    usingGruntReporter: false,
+    consoleReport: { }
   };
 
   var pad = function(msg, length) {
@@ -127,6 +128,69 @@ exports.init = function(grunt) {
     grunt.log.writeln();
   };
 
+  exports.consoleReporter = function(results, data) {
+    var output = ' ', errorCount = 0, error;
+    // Dont report empty data as its an ignored file
+    if (data.length < 1) {
+      output += '0 files linted. Please check your ignored files';
+      return;
+    }
+
+    if (results.length === 0) {
+      // Success!
+      output += 'jsHint Success';
+      return;
+    }
+
+    var options = data[0].options;
+    output += '\n';
+
+    var lastfile = null;
+    // Iterate over all errors.
+    results.forEach(function(result) {
+
+      // Only print file name once per error
+      if (result.file !== lastfile) {
+        output += '\n';
+        output = chalk.bold(result.file ? '   ' + result.file : '');
+      }
+      lastfile = result.file;
+
+      var e = result.error;
+
+      // Sometimes there's no error object.
+      if (!e) {
+        return;
+      }
+
+      if (e.evidence) {
+        // Manually increment errorcount since we're not using grunt.log.error().
+        errorCount++;
+
+        // No idea why JSHint treats tabs as options.indent # characters wide, but it
+        // does. See issue: https://github.com/jshint/jshint/issues/430
+        // Replacing tabs with appropriate spaces (i.e. columns) ensures that
+        // caret will line up correctly.
+        var evidence = e.evidence.replace(/\t/g, grunt.util.repeat(options.indent, ' '));
+        output += '\n';
+        output += pad(e.line.toString(), 7) + ' |' + chalk.gray(evidence);
+        output += grunt.util.repeat(9, ' ') + grunt.util.repeat(e.character - 1, ' ') + '^ ';
+        output += '[' + e.code + '] ';
+        output += e.reason;
+
+      } else {
+        // Generic "Whoops, too many errors" error.
+        error = e.reason;
+      }
+    });
+    output += '\n';
+    exports.consoleReport = {
+      output : output,
+      error : error
+    };
+  };
+
+
   // Run JSHint on the given files with the given options
   exports.lint = function(files, options, done) {
     var cliOptions = {
@@ -157,7 +221,7 @@ exports.init = function(grunt) {
     var reporterOutputDir;
     // Get reporter output directory for relative paths in reporters
     if (options.hasOwnProperty('reporterOutput')) {
-      if (options.reporterOutput) {
+      if (options.reporterOutputRelative) {
         reporterOutputDir = path.dirname(options.reporterOutput);
       }
       delete options.reporterOutput;
@@ -165,7 +229,7 @@ exports.init = function(grunt) {
 
     // Select a reporter to use
     var reporter = exports.selectReporter(options);
-
+    var consoleReporter = exports.consoleReporter;
     // Remove bad options that may have came in from the cli
     ['reporter', 'reporterOutputRelative', 'jslint-reporter', 'checkstyle-reporter', 'show-non-errors'].forEach(function(opt) {
       if (options.hasOwnProperty(opt)) {
@@ -203,6 +267,7 @@ exports.init = function(grunt) {
         });
       }
       reporter(results, data, options);
+      consoleReporter(results, data, options);
       allResults = allResults.concat(results);
       allData = allData.concat(data);
     };
